@@ -1,0 +1,6 @@
+.git/
+node_modules/
+config/development/
+*.log
+.vscode/
+venv/
