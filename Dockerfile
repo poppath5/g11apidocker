@@ -8,9 +8,9 @@ ENV PYTHONUNBUFFERED 1
 
 # lint
 RUN pip install --upgrade pip
-RUN pip install flake8
-COPY . /app
-RUN flake8 --ignore=E501,F401 .
+# RUN pip install flake8
+# COPY . /app
+# RUN flake8 --ignore=E501,F401 .
 
 # install python dependencies
 COPY ./requirements.txt .
