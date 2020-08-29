@@ -56,6 +56,8 @@ handler = WebhookHandler(channel_secret)
 static_tmp_path = os.path.join(os.path.dirname(__file__), 'static', 'tmp')
 
 # function for create tmp dir for download content
+
+
 def make_static_tmp_dir():
     try:
         os.makedirs(static_tmp_path)
@@ -87,6 +89,59 @@ def callback():
         abort(400)
 
     return 'OK'
+
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    text = event.message.text
+
+    if text == 'profile':
+        if isinstance(event.source, SourceUser):
+            profile = line_bot_api.get_profile(event.source.user_id)
+            line_bot_api.reply_message(
+                event.reply_token, [
+                    TextSendMessage(text='Display name: ' +
+                                    profile.display_name),
+                    TextSendMessage(text='Status message: ' +
+                                    str(profile.status_message))
+                ]
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="Bot can't use profile API without user ID"))
+
+    else:
+        line_bot_api.reply_message(
+            event.reply_token, TextSendMessage(text=event.message.text))
+
+# Other Message Type
+@handler.add(MessageEvent, message=(ImageMessage, VideoMessage, AudioMessage))
+def handle_content_message(event):
+    if isinstance(event.message, ImageMessage):
+        ext = 'jpg'
+    elif isinstance(event.message, VideoMessage):
+        ext = 'mp4'
+    elif isinstance(event.message, AudioMessage):
+        ext = 'm4a'
+    else:
+        return
+
+    message_content = line_bot_api.get_message_content(event.message.id)
+    with tempfile.NamedTemporaryFile(dir=static_tmp_path, prefix=ext + '-', delete=False) as tf:
+        for chunk in message_content.iter_content():
+            tf.write(chunk)
+        tempfile_path = tf.name
+
+    dist_path = tempfile_path + '.' + ext
+    dist_name = os.path.basename(dist_path)
+    os.rename(tempfile_path, dist_path)
+
+    line_bot_api.reply_message(
+        event.reply_token, [
+            TextSendMessage(text='Save content.'),
+            TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name))
+        ])
 
 
 @app.route("/")
