@@ -91,29 +91,29 @@ def callback():
     return 'OK'
 
 
-# @handler.add(MessageEvent, message=TextMessage)
-# def handle_text_message(event):
-#     text = event.message.text
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    text = event.message.text
 
-#     if text == 'profile':
-#         if isinstance(event.source, SourceUser):
-#             profile = line_bot_api.get_profile(event.source.user_id)
-#             line_bot_api.reply_message(
-#                 event.reply_token, [
-#                     TextSendMessage(text='Display name: ' +
-#                                     profile.display_name),
-#                     TextSendMessage(text='Status message: ' +
-#                                     str(profile.status_message))
-#                 ]
-#             )
-#         else:
-#             line_bot_api.reply_message(
-#                 event.reply_token,
-#                 TextSendMessage(text="Bot can't use profile API without user ID"))
+    if text == 'profile':
+        if isinstance(event.source, SourceUser):
+            profile = line_bot_api.get_profile(event.source.user_id)
+            line_bot_api.reply_message(
+                event.reply_token, [
+                    TextSendMessage(text='Display name: ' +
+                                    profile.display_name),
+                    TextSendMessage(text='Status message: ' +
+                                    str(profile.status_message))
+                ]
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="Bot can't use profile API without user ID"))
 
-#     else:
-#         line_bot_api.reply_message(
-#             event.reply_token, TextSendMessage(text=event.message.text))
+    else:
+        line_bot_api.reply_message(
+            event.reply_token, TextSendMessage(text=event.message.text))
 
 # # Other Message Type
 # @handler.add(MessageEvent, message=(ImageMessage, VideoMessage, AudioMessage))
