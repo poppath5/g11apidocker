@@ -1,25 +1,92 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
 from tensorflow import keras
-from keras.models import load_model
-from keras.preprocessing import image
-from PIL import Image
 
-import imdb 
-import os, sys, gc
-import requests
-import io
-   
+from linebot import (
+    LineBotApi, WebhookHandler
+)
+from linebot.exceptions import (
+    LineBotApiError, InvalidSignatureError
+)
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    SourceUser, SourceGroup, SourceRoom,
+    TemplateSendMessage, ConfirmTemplate, MessageAction,
+    ButtonsTemplate, ImageCarouselTemplate, ImageCarouselColumn, URIAction,
+    PostbackAction, DatetimePickerAction,
+    CameraAction, CameraRollAction, LocationAction,
+    CarouselTemplate, CarouselColumn, PostbackEvent,
+    StickerMessage, StickerSendMessage, LocationMessage, LocationSendMessage,
+    ImageMessage, VideoMessage, AudioMessage, FileMessage,
+    UnfollowEvent, FollowEvent, JoinEvent, LeaveEvent, BeaconEvent,
+    MemberJoinedEvent, MemberLeftEvent,
+    FlexSendMessage, BubbleContainer, ImageComponent, BoxComponent,
+    TextComponent, SpacerComponent, IconComponent, ButtonComponent,
+    SeparatorComponent, QuickReply, QuickReplyButton,
+    ImageSendMessage)
+
+import imdb
+import errno
+import os
+import sys
+import tempfile
+
 IMG_SIZE = 224
 CHANNELS = 3
 
-model = tf.keras.models.load_model("model_20200829.h5",compile=False,custom_objects={'KerasLayer':hub.KerasLayer})
+model = tf.keras.models.load_model(
+    "model_20200829.h5", compile=False, custom_objects={'KerasLayer': hub.KerasLayer})
 
 app = Flask(__name__)
+
+# get channel_secret and channel_access_token from your environment variable
+channel_secret = os.getenv('LINE_CHANNEL_SECRET', None)
+channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN', None)
+if channel_secret is None or channel_access_token is None:
+    print('Specify LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN as environment variables.')
+    sys.exit(1)
+
+line_bot_api = LineBotApi(channel_access_token)
+handler = WebhookHandler(channel_secret)
+
+static_tmp_path = os.path.join(os.path.dirname(__file__), 'static', 'tmp')
+
+# function for create tmp dir for download content
+def make_static_tmp_dir():
+    try:
+        os.makedirs(static_tmp_path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(static_tmp_path):
+            pass
+        else:
+            raise
+
+
+@app.route("/callback", methods=['POST'])
+def callback():
+    # get X-Line-Signature header value
+    signature = request.headers['X-Line-Signature']
+
+    # get request body as text
+    body = request.get_data(as_text=True)
+    app.logger.info("Request body: " + body)
+
+    # handle webhook body
+    try:
+        handler.handle(body, signature)
+    except LineBotApiError as e:
+        print("Got exception from LINE Messaging API: %s\n" % e.message)
+        for m in e.error.details:
+            print("  %s: %s" % (m.property, m.message))
+        print("\n")
+    except InvalidSignatureError:
+        abort(400)
+
+    return 'OK'
 
 
 @app.route("/")
@@ -30,14 +97,15 @@ def hello():
     )
     return message
 
+
 @app.route('/predict', methods=['GET'])
 def show_prediction():
     movie_id = request.args.get("movieId", None)
 
     print(f"got movie_id {movie_id}")
 
-    # creating instance of IMDb 
-    # ia = imdb.IMDb() 
+    # creating instance of IMDb
+    # ia = imdb.IMDb()
     # movie = ia.get_movie(movie_id[2:])
 
     # img_path = 'temp/'+movie_id+'.jpg'
@@ -62,14 +130,14 @@ def show_prediction():
 
     img_array = keras.preprocessing.image.img_to_array(img)
     img_array = img_array/255
-    img_array = tf.expand_dims(img_array, 0) # Create a batch
+    img_array = tf.expand_dims(img_array, 0)  # Create a batch
 
     # Generate prediction
     # prediction = model.predict(img)
     prediction_value = model.predict(img_array)
     prediction = (prediction_value > 0.5).astype('int')
     prediction = pd.Series(prediction[0])
-    prediction = prediction[prediction==1].index.values
+    prediction = prediction[prediction == 1].index.values
 
     # print("predict genre ="+str(list(prediction)))
 
@@ -98,41 +166,17 @@ def show_prediction():
         'Western',
     ]
     response = {}
-    
+
     # response['title'] = movie['title']
     # response['genres'] = movie['genres']
 
     predict_values = prediction_value.tolist()
-    
-    response['predict_genres'] = [f'{predict_labels[p]}: {predict_values[0][p]}' for p in prediction]
+
+    response['predict_genres'] = [
+        f'{predict_labels[p]}: {predict_values[0][p]}' for p in prediction]
 
     response["img_path"] = f"{img_path}"
     # response["MESSAGE"] = f"movie_id: {movie_id}"
 
     # Return the response in json format
     return jsonify(response)
-
-def download_image(url, image_file_path='temp', filename=False):
-    isdir = os.path.isdir(image_file_path)
-    #check if folder exist
-    if not isdir:
-        #create directory
-        os.makedirs(image_file_path)
-
-    r = requests.get(url, stream = True, timeout=4.0)
-    if r.status_code != requests.codes.ok:
-        assert False, 'Status code error: {}.'.format(r.status_code)
-
-    file_extension = url.split("/")[-1].split(".")[-1]
-    if not filename:
-      filename = url.split("/")[-1].split(".")[0]
-
-    save_path = image_file_path+"/"+filename+"."+file_extension
-
-    if not os.path.isfile(save_path):
-      with Image.open(io.BytesIO(r.content)) as im:
-          im.save(save_path)
-
-    print('Image downloaded from url: {} \nsaved to: {}'.format(url, save_path))
-    return save_path
-
