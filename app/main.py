@@ -67,6 +67,9 @@ def make_static_tmp_dir():
         else:
             raise
 
+# create tmp dir for download content
+make_static_tmp_dir()
+
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -235,10 +238,3 @@ def show_prediction():
 
     # Return the response in json format
     return jsonify(response)
-
-if __name__ == "__main__":
-    # create tmp dir for download content
-    make_static_tmp_dir()
-
-    # Only for debugging while developing
-    app.run(host="0.0.0.0", debug=True, port=80)
