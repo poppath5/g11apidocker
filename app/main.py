@@ -209,7 +209,7 @@ def line_predict(img_path):
     # response["MESSAGE"] = f"movie_id: {movie_id}"
 
     # Return the response in json format
-    return jsonify(response)
+    return response
 
 @app.route('/predict', methods=['GET'])
 def show_prediction():
