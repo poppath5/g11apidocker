@@ -91,57 +91,57 @@ def callback():
     return 'OK'
 
 
-@handler.add(MessageEvent, message=TextMessage)
-def handle_text_message(event):
-    text = event.message.text
+# @handler.add(MessageEvent, message=TextMessage)
+# def handle_text_message(event):
+#     text = event.message.text
 
-    if text == 'profile':
-        if isinstance(event.source, SourceUser):
-            profile = line_bot_api.get_profile(event.source.user_id)
-            line_bot_api.reply_message(
-                event.reply_token, [
-                    TextSendMessage(text='Display name: ' +
-                                    profile.display_name),
-                    TextSendMessage(text='Status message: ' +
-                                    str(profile.status_message))
-                ]
-            )
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="Bot can't use profile API without user ID"))
+#     if text == 'profile':
+#         if isinstance(event.source, SourceUser):
+#             profile = line_bot_api.get_profile(event.source.user_id)
+#             line_bot_api.reply_message(
+#                 event.reply_token, [
+#                     TextSendMessage(text='Display name: ' +
+#                                     profile.display_name),
+#                     TextSendMessage(text='Status message: ' +
+#                                     str(profile.status_message))
+#                 ]
+#             )
+#         else:
+#             line_bot_api.reply_message(
+#                 event.reply_token,
+#                 TextSendMessage(text="Bot can't use profile API without user ID"))
 
-    else:
-        line_bot_api.reply_message(
-            event.reply_token, TextSendMessage(text=event.message.text))
+#     else:
+#         line_bot_api.reply_message(
+#             event.reply_token, TextSendMessage(text=event.message.text))
 
-# Other Message Type
-@handler.add(MessageEvent, message=(ImageMessage, VideoMessage, AudioMessage))
-def handle_content_message(event):
-    if isinstance(event.message, ImageMessage):
-        ext = 'jpg'
-    elif isinstance(event.message, VideoMessage):
-        ext = 'mp4'
-    elif isinstance(event.message, AudioMessage):
-        ext = 'm4a'
-    else:
-        return
+# # Other Message Type
+# @handler.add(MessageEvent, message=(ImageMessage, VideoMessage, AudioMessage))
+# def handle_content_message(event):
+#     if isinstance(event.message, ImageMessage):
+#         ext = 'jpg'
+#     elif isinstance(event.message, VideoMessage):
+#         ext = 'mp4'
+#     elif isinstance(event.message, AudioMessage):
+#         ext = 'm4a'
+#     else:
+#         return
 
-    message_content = line_bot_api.get_message_content(event.message.id)
-    with tempfile.NamedTemporaryFile(dir=static_tmp_path, prefix=ext + '-', delete=False) as tf:
-        for chunk in message_content.iter_content():
-            tf.write(chunk)
-        tempfile_path = tf.name
+#     message_content = line_bot_api.get_message_content(event.message.id)
+#     with tempfile.NamedTemporaryFile(dir=static_tmp_path, prefix=ext + '-', delete=False) as tf:
+#         for chunk in message_content.iter_content():
+#             tf.write(chunk)
+#         tempfile_path = tf.name
 
-    dist_path = tempfile_path + '.' + ext
-    dist_name = os.path.basename(dist_path)
-    os.rename(tempfile_path, dist_path)
+#     dist_path = tempfile_path + '.' + ext
+#     dist_name = os.path.basename(dist_path)
+#     os.rename(tempfile_path, dist_path)
 
-    line_bot_api.reply_message(
-        event.reply_token, [
-            TextSendMessage(text='Save content.'),
-            TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name))
-        ])
+#     line_bot_api.reply_message(
+#         event.reply_token, [
+#             TextSendMessage(text='Save content.'),
+#             TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name))
+#         ])
 
 
 @app.route("/")
@@ -235,3 +235,10 @@ def show_prediction():
 
     # Return the response in json format
     return jsonify(response)
+
+if __name__ == "__main__":
+    # create tmp dir for download content
+    make_static_tmp_dir()
+
+    # Only for debugging while developing
+    app.run(host="0.0.0.0", debug=True, port=80)
