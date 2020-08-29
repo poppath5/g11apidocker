@@ -38,6 +38,31 @@ import tempfile
 IMG_SIZE = 224
 CHANNELS = 3
 
+PREDICT_LABELS = [
+        'Action',
+        'Adventure',
+        'Animation',
+        'Biography',
+        'Comedy',
+        'Crime',
+        'Drama',
+        'Family',
+        'Fantasy',
+        'Game-Show',
+        'History',
+        'Horror',
+        'Music',
+        'Musical',
+        'Mystery',
+        'News',
+        'Romance',
+        'Sci-Fi',
+        'Sport',
+        'Thriller',
+        'War',
+        'Western',
+    ]
+
 model = tf.keras.models.load_model(
     "model_20200829.h5", compile=False, custom_objects={'KerasLayer': hub.KerasLayer})
 
@@ -140,10 +165,13 @@ def handle_content_message(event):
     dist_name = os.path.basename(dist_path)
     os.rename(tempfile_path, dist_path)
 
+    predict_message = line_predict(os.path.join('static', 'tmp', dist_name))
+
     line_bot_api.reply_message(
         event.reply_token, [
-            TextSendMessage(text='Save content.'),
-            TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name))
+            # TextSendMessage(text='Save content.'),
+            TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name)),
+            TextSendMessage(text=predict_message)
         ])
 
 
@@ -155,6 +183,32 @@ def hello():
     )
     return message
 
+def line_predict(img_path):
+    img = keras.preprocessing.image.load_img(
+        img_path, color_mode='rgb', target_size=(IMG_SIZE, IMG_SIZE)
+    )
+
+    # Read and prepare image
+    img_array = keras.preprocessing.image.img_to_array(img)
+    img_array = img_array/255
+    img_array = tf.expand_dims(img_array, 0)  # Create a batch
+
+    # Generate prediction
+    prediction_value = model.predict(img_array)
+    prediction = (prediction_value > 0.5).astype('int')
+    prediction = pd.Series(prediction[0])
+    prediction = prediction[prediction == 1].index.values
+
+    response = {}
+    predict_values = prediction_value.tolist()
+    response['predict_genres'] = [
+        f'{PREDICT_LABELS[p]}: {predict_values[0][p]}' for p in prediction]
+
+    response["img_path"] = f"{img_path}"
+    # response["MESSAGE"] = f"movie_id: {movie_id}"
+
+    # Return the response in json format
+    return jsonify(response)
 
 @app.route('/predict', methods=['GET'])
 def show_prediction():
