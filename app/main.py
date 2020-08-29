@@ -17,6 +17,8 @@ import io
 IMG_SIZE = 224
 CHANNELS = 3
 
+model = tf.keras.models.load_model("model_20200829.h5",compile=False,custom_objects={'KerasLayer':hub.KerasLayer})
+
 app = Flask(__name__)
 
 
@@ -34,23 +36,38 @@ def show_prediction():
 
     print(f"got movie_id {movie_id}")
 
-    model = tf.keras.models.load_model("bce_model_20200826.h5",compile=False,custom_objects={'KerasLayer':hub.KerasLayer})
-
     # creating instance of IMDb 
-    ia = imdb.IMDb() 
-    movie = ia.get_movie(movie_id[2:])
+    # ia = imdb.IMDb() 
+    # movie = ia.get_movie(movie_id[2:])
 
-    save_path = download_image(movie['full-size cover url'],'temp', movie_id)
-    img_path = save_path
+    # img_path = 'temp/'+movie_id+'.jpg'
+
+    # isfile = os.path.isfile(img_path)
+    # if not isfile:
+    #     save_path = download_image(movie['full-size cover url'],'temp', movie_id)
+    #     img_path = save_path
 
     # Read and prepare image
-    img = image.load_img(img_path, target_size=(IMG_SIZE,IMG_SIZE,CHANNELS))
-    img = image.img_to_array(img)
-    img = img/255
-    img = np.expand_dims(img, axis=0)
+    # img = image.load_img(img_path, target_size=(IMG_SIZE,IMG_SIZE,CHANNELS))
+    # img = image.img_to_array(img)
+    # img = img/255
+    # img = np.expand_dims(img, axis=0)
+
+    image_url = "https://m.media-amazon.com/images/M/MV5BNGVjNWI4ZGUtNzE0MS00YTJmLWE0ZDctN2ZiYTk2YmI3NTYyXkEyXkFqcGdeQXVyMTkxNjUyNQ@@._V1_SY1000_CR0,0,674,1000_AL_.jpg"
+    img_path = tf.keras.utils.get_file('imagefile', origin=image_url)
+
+    img = keras.preprocessing.image.load_img(
+        img_path, color_mode='rgb', target_size=(IMG_SIZE, IMG_SIZE)
+    )
+
+    img_array = keras.preprocessing.image.img_to_array(img)
+    img_array = img_array/255
+    img_array = tf.expand_dims(img_array, 0) # Create a batch
 
     # Generate prediction
-    prediction = (model.predict(img) > 0.5).astype('int')
+    # prediction = model.predict(img)
+    prediction_value = model.predict(img_array)
+    prediction = (prediction_value > 0.5).astype('int')
     prediction = pd.Series(prediction[0])
     prediction = prediction[prediction==1].index.values
 
@@ -82,12 +99,15 @@ def show_prediction():
     ]
     response = {}
     
-    response['title'] = movie['title']
-    response['genres'] = movie['genres']
-    response['predict_genres'] = [predict_labels[p] for p in prediction]
+    # response['title'] = movie['title']
+    # response['genres'] = movie['genres']
+
+    predict_values = prediction_value.tolist()
+    
+    response['predict_genres'] = [f'{predict_labels[p]}: {predict_values[0][p]}' for p in prediction]
 
     response["img_path"] = f"{img_path}"
-    response["MESSAGE"] = f"movie_id: {movie_id}"
+    # response["MESSAGE"] = f"movie_id: {movie_id}"
 
     # Return the response in json format
     return jsonify(response)
