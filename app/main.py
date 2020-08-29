@@ -30,6 +30,7 @@ from linebot.models import (
     ImageSendMessage)
 
 import imdb
+import json
 import errno
 import os
 import sys
@@ -165,7 +166,7 @@ def handle_content_message(event):
     dist_name = os.path.basename(dist_path)
     os.rename(tempfile_path, dist_path)
 
-    predict_message = line_predict(os.path.join('static', 'tmp', dist_name))
+    predict_message = json.dumps(line_predict(os.path.join('static', 'tmp', dist_name)))
 
     line_bot_api.reply_message(
         event.reply_token, [
