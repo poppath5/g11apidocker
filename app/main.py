@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, abort
+from flask_restful import reqparse, abort, Api, Resource
 
 import numpy as np
 import pandas as pd
@@ -40,34 +41,35 @@ IMG_SIZE = 224
 CHANNELS = 3
 
 PREDICT_LABELS = [
-        'Action',
-        'Adventure',
-        'Animation',
-        'Biography',
-        'Comedy',
-        'Crime',
-        'Drama',
-        'Family',
-        'Fantasy',
-        'Game-Show',
-        'History',
-        'Horror',
-        'Music',
-        'Musical',
-        'Mystery',
-        'News',
-        'Romance',
-        'Sci-Fi',
-        'Sport',
-        'Thriller',
-        'War',
-        'Western',
-    ]
+    'Action',
+    'Adventure',
+    'Animation',
+    'Biography',
+    'Comedy',
+    'Crime',
+    'Drama',
+    'Family',
+    'Fantasy',
+    'Game-Show',
+    'History',
+    'Horror',
+    'Music',
+    'Musical',
+    'Mystery',
+    'News',
+    'Romance',
+    'Sci-Fi',
+    'Sport',
+    'Thriller',
+    'War',
+    'Western',
+]
 
 model = tf.keras.models.load_model(
     "model_20200829.h5", compile=False, custom_objects={'KerasLayer': hub.KerasLayer})
 
 app = Flask(__name__)
+api = Api(app)
 
 # get channel_secret and channel_access_token from your environment variable
 channel_secret = os.getenv('LINE_CHANNEL_SECRET', None)
@@ -92,6 +94,7 @@ def make_static_tmp_dir():
             pass
         else:
             raise
+
 
 # create tmp dir for download content
 make_static_tmp_dir()
@@ -145,14 +148,12 @@ def handle_text_message(event):
             event.reply_token, TextSendMessage(text=event.message.text))
 
 # Other Message Type
-@handler.add(MessageEvent, message=(ImageMessage, VideoMessage, AudioMessage))
+
+
+@handler.add(MessageEvent, message=(ImageMessage))
 def handle_content_message(event):
     if isinstance(event.message, ImageMessage):
         ext = 'jpg'
-    elif isinstance(event.message, VideoMessage):
-        ext = 'mp4'
-    elif isinstance(event.message, AudioMessage):
-        ext = 'm4a'
     else:
         return
 
@@ -166,12 +167,14 @@ def handle_content_message(event):
     dist_name = os.path.basename(dist_path)
     os.rename(tempfile_path, dist_path)
 
-    predict_message = json.dumps(line_predict(os.path.join('static', 'tmp', dist_name)))
+    predict_message = json.dumps(predict(
+        os.path.join('static', 'tmp', dist_name)))
 
     line_bot_api.reply_message(
         event.reply_token, [
             # TextSendMessage(text='Save content.'),
-            TextSendMessage(text=request.host_url + os.path.join('static', 'tmp', dist_name)),
+            # TextSendMessage(text=request.host_url + \
+            #                 os.path.join('static', 'tmp', dist_name)),
             TextSendMessage(text=predict_message)
         ])
 
@@ -184,112 +187,59 @@ def hello():
     )
     return message
 
-def line_predict(img_path):
+
+def predict(image_path, isUrl = False):
+    if isUrl:
+        img_path = tf.keras.utils.get_file(fname=next(tempfile._get_candidate_names()), origin=image_url)
+
     img = keras.preprocessing.image.load_img(
         img_path, color_mode='rgb', target_size=(IMG_SIZE, IMG_SIZE)
     )
 
-    # Read and prepare image
     img_array = keras.preprocessing.image.img_to_array(img)
     img_array = img_array/255
     img_array = tf.expand_dims(img_array, 0)  # Create a batch
 
     # Generate prediction
-    prediction_value = model.predict(img_array)
-    prediction = (prediction_value > 0.5).astype('int')
+    predict_value = model.predict(img_array)
+    prediction = (predict_value > 0.5).astype('int')
     prediction = pd.Series(prediction[0])
     prediction = prediction[prediction == 1].index.values
 
+    os.remove(img_path)
+
     response = {}
-    predict_values = prediction_value.tolist()
     response['predict_genres'] = [
-        f'{PREDICT_LABELS[p]}: {predict_values[0][p]}' for p in prediction]
+        f'{PREDICT_LABELS[p]}: {predict_value.tolist()[0][p]:.2f}' for p in prediction]
 
-    response["img_path"] = f"{img_path}"
-    # response["MESSAGE"] = f"movie_id: {movie_id}"
-
-    # Return the response in json format
     return response
 
-@app.route('/predict', methods=['GET'])
-def show_prediction():
-    movie_id = request.args.get("movieId", None)
 
-    print(f"got movie_id {movie_id}")
+class Imdb(Resource):
+    def get(self, title_id):
+        print(f"got title_id {title_id}")
 
-    # creating instance of IMDb
-    # ia = imdb.IMDb()
-    # movie = ia.get_movie(movie_id[2:])
+        # creating instance of IMDb
+        ia = imdb.IMDb()
+        movie = ia.get_movie(int(title_id[2:]))
 
-    # img_path = 'temp/'+movie_id+'.jpg'
+        response = {}
+        response['id'] = title_id
+        response['title'] = movie['title']
+        response['genres'] = movie['genres']
 
-    # isfile = os.path.isfile(img_path)
-    # if not isfile:
-    #     save_path = download_image(movie['full-size cover url'],'temp', movie_id)
-    #     img_path = save_path
+        movie_img_url = movie['full-size cover url']
 
-    # Read and prepare image
-    # img = image.load_img(img_path, target_size=(IMG_SIZE,IMG_SIZE,CHANNELS))
-    # img = image.img_to_array(img)
-    # img = img/255
-    # img = np.expand_dims(img, axis=0)
+        predict_genres = predict(movie_img_url, isUrl = True)
 
-    image_url = "https://m.media-amazon.com/images/M/MV5BNGVjNWI4ZGUtNzE0MS00YTJmLWE0ZDctN2ZiYTk2YmI3NTYyXkEyXkFqcGdeQXVyMTkxNjUyNQ@@._V1_SY1000_CR0,0,674,1000_AL_.jpg"
-    img_path = tf.keras.utils.get_file('imagefile', origin=image_url)
+        #Merge Dict
+        response = {**response, **predict_genres}
 
-    img = keras.preprocessing.image.load_img(
-        img_path, color_mode='rgb', target_size=(IMG_SIZE, IMG_SIZE)
-    )
+        return response
 
-    img_array = keras.preprocessing.image.img_to_array(img)
-    img_array = img_array/255
-    img_array = tf.expand_dims(img_array, 0)  # Create a batch
 
-    # Generate prediction
-    # prediction = model.predict(img)
-    prediction_value = model.predict(img_array)
-    prediction = (prediction_value > 0.5).astype('int')
-    prediction = pd.Series(prediction[0])
-    prediction = prediction[prediction == 1].index.values
-
-    # print("predict genre ="+str(list(prediction)))
-
-    predict_labels = [
-        'Action',
-        'Adventure',
-        'Animation',
-        'Biography',
-        'Comedy',
-        'Crime',
-        'Drama',
-        'Family',
-        'Fantasy',
-        'Game-Show',
-        'History',
-        'Horror',
-        'Music',
-        'Musical',
-        'Mystery',
-        'News',
-        'Romance',
-        'Sci-Fi',
-        'Sport',
-        'Thriller',
-        'War',
-        'Western',
-    ]
-    response = {}
-
-    # response['title'] = movie['title']
-    # response['genres'] = movie['genres']
-
-    predict_values = prediction_value.tolist()
-
-    response['predict_genres'] = [
-        f'{predict_labels[p]}: {predict_values[0][p]}' for p in prediction]
-
-    response["img_path"] = f"{img_path}"
-    # response["MESSAGE"] = f"movie_id: {movie_id}"
-
-    # Return the response in json format
-    return jsonify(response)
+##
+# Actually setup the Api resource routing here
+##
+api.add_resource(Imdb, '/imdb/<title_id>')
+# api.add_resource(Todo, '/todos/<todo_id>')
