@@ -43,7 +43,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import joblib
 import pickle
 
-nltk.download('stopwords')
+# nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 
 IMG_SIZE = 224

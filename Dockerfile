@@ -28,3 +28,4 @@ COPY --from=builder /app/wheels /wheels
 COPY --from=builder /app/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache /wheels/*
+RUN [ "python", "-c", "import nltk; nltk.download('stopwords')" ]
