@@ -1,18 +1,10 @@
-from flask import Flask, request, jsonify, abort
-from flask_restful import reqparse, abort, Api, Resource
-
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-import tensorflow_hub as hub
-from tensorflow import keras
-
-from linebot import (
-    LineBotApi, WebhookHandler
-)
-from linebot.exceptions import (
-    LineBotApiError, InvalidSignatureError
-)
+import tempfile
+import sys
+import os
+import errno
+import json
+import re
+import imdb
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     SourceUser, SourceGroup, SourceRoom,
@@ -29,18 +21,34 @@ from linebot.models import (
     TextComponent, SpacerComponent, IconComponent, ButtonComponent,
     SeparatorComponent, QuickReply, QuickReplyButton,
     ImageSendMessage)
+from linebot.exceptions import (
+    LineBotApiError, InvalidSignatureError
+)
+from linebot import (
+    LineBotApi, WebhookHandler
+)
+from nltk.corpus import stopwords
+from flask import Flask, request, jsonify, abort
+from flask_restful import reqparse, abort, Api, Resource
 
-import imdb
-import json
-import errno
-import os
-import sys
-import tempfile
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import tensorflow_hub as hub
+from tensorflow import keras
+
+import nltk
+import sklearn
+from sklearn.feature_extraction.text import TfidfVectorizer
+import joblib
+import pickle
+
+nltk.download('stopwords')
+stop_words = set(stopwords.words('english'))
 
 IMG_SIZE = 224
-CHANNELS = 3
 
-PREDICT_LABELS = [
+POSTER_PREDICT_LABELS = [
     'Action',
     'Adventure',
     'Animation',
@@ -50,23 +58,32 @@ PREDICT_LABELS = [
     'Drama',
     'Family',
     'Fantasy',
-    'Game-Show',
     'History',
     'Horror',
     'Music',
     'Musical',
     'Mystery',
-    'News',
     'Romance',
     'Sci-Fi',
-    'Sport',
     'Thriller',
     'War',
-    'Western',
 ]
 
-model = tf.keras.models.load_model(
+
+DESCRIPTION_PREDICT_LABELS = ['Action', 'Adult', 'Adventure', 'Animation', 'Biography', 'Comedy',
+                              'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'History',
+                              'Horror', 'Music', 'Musical', 'Mystery', 'Romance', 'Sci-Fi',
+                              'Short', 'Sport', 'Thriller', 'War', 'Western']
+
+## Load 2 Models Prepare for Predict
+
+# Computer Vision Model
+poster_model = tf.keras.models.load_model(
     "model_20200829.h5", compile=False, custom_objects={'KerasLayer': hub.KerasLayer})
+
+# NLP Model
+description_model = pickle.load(open('model_description_20200831.pkl', 'rb'))
+tf1 = pickle.load(open("tfidf1.pkl", 'rb'))
 
 app = Flask(__name__)
 api = Api(app)
@@ -167,7 +184,7 @@ def handle_content_message(event):
     dist_name = os.path.basename(dist_path)
     os.rename(tempfile_path, dist_path)
 
-    predict_message = json.dumps(predict(
+    predict_message = json.dumps(poster_predict(
         os.path.join('static', 'tmp', dist_name)))
 
     line_bot_api.reply_message(
@@ -187,10 +204,11 @@ def hello():
     )
     return message
 
-
-def predict(image_path, isUrl = False):
+# CV Predict Pipeline (Function)
+def poster_predict(image_path, isUrl=False):
     if isUrl:
-        img_path = tf.keras.utils.get_file(fname=next(tempfile._get_candidate_names()), origin=image_url)
+        img_path = tf.keras.utils.get_file(fname=next(
+            tempfile._get_candidate_names()), origin=image_path)
 
     img = keras.preprocessing.image.load_img(
         img_path, color_mode='rgb', target_size=(IMG_SIZE, IMG_SIZE)
@@ -201,7 +219,7 @@ def predict(image_path, isUrl = False):
     img_array = tf.expand_dims(img_array, 0)  # Create a batch
 
     # Generate prediction
-    predict_value = model.predict(img_array)
+    predict_value = poster_model.predict(img_array)
     prediction = (predict_value > 0.5).astype('int')
     prediction = pd.Series(prediction[0])
     prediction = prediction[prediction == 1].index.values
@@ -210,10 +228,39 @@ def predict(image_path, isUrl = False):
 
     response = {}
     response['predict_genres'] = [
-        f'{PREDICT_LABELS[p]}: {predict_value.tolist()[0][p]:.2f}' for p in prediction]
+        f'{POSTER_PREDICT_LABELS[p]}: {predict_value.tolist()[0][p]:.2f}' for p in prediction]
 
     return response
 
+# NLP Predict Pipeline (Function)
+def description_predict(description):
+    tfidf_vectorizer = TfidfVectorizer(vocabulary=tf1.vocabulary_)
+
+    # clean text using regex
+    description = re.sub("[^a-zA-Z]", " ", description)
+    # remove whitespaces
+    description = ' '.join(description.split())
+    # convert text to lowercase
+    description = description.lower()
+
+    no_stopword_text = [w for w in description.split() if w not in stop_words]
+    description = ' '.join(no_stopword_text)
+
+    description_vec = tfidf_vectorizer.fit_transform([description])
+
+    predict_value = description_model.predict(description_vec)
+    prediction = (predict_value > 0.5).astype('int')
+    prediction = pd.Series(prediction[0])
+    prediction = prediction[prediction == 1].index.values
+
+    response = {}
+    response['predict_genres'] = [
+        f'{DESCRIPTION_PREDICT_LABELS[p]}: {predict_value.tolist()[0][p]:.2f}' for p in prediction]
+
+    return response
+
+
+### Create RESTful APIs Structure using Flask-RESTful ###
 
 class Imdb(Resource):
     def get(self, title_id):
@@ -226,15 +273,48 @@ class Imdb(Resource):
         response = {}
         response['id'] = title_id
         response['title'] = movie['title']
-        response['genres'] = movie['genres']
-
+        response['actual_imdb_genres'] = movie['genres']
+        response['description'] = movie['plot'][0].split('::')[0]
         movie_img_url = movie['full-size cover url']
 
-        predict_genres = predict(movie_img_url, isUrl = True)
+        response['poster_predict_genres'] = dict(poster_predict(
+            movie_img_url, isUrl=True))['predict_genres']
+        response['description_predict_genres'] = dict(description_predict(
+            str(response['description'])))['predict_genres']
 
-        #Merge Dict
-        response = {**response, **predict_genres}
+        return response
 
+
+class ImageGenre(Resource):
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('imgurl', required=True,
+                    help="Please Specify Image Url !!!")
+        super(ImageGenre, self).__init__()
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        image_url = args['imgurl']
+        response = {}
+        response['source'] = image_url
+        response['predict_genres'] = dict(poster_predict(
+            image_url, isUrl=True))['predict_genres']
+        return response
+
+
+class TextGenre(Resource):
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('text', type=str, required=True, help="Please Specify Text !!!")
+        super(TextGenre, self).__init__()
+
+    def get(self):
+        args = self.reqparse.parse_args()
+        text = args['text']
+        response = {}
+        response['source'] = text
+        response['predict_genres'] = dict(description_predict(text))[
+            'predict_genres']
         return response
 
 
@@ -242,4 +322,5 @@ class Imdb(Resource):
 # Actually setup the Api resource routing here
 ##
 api.add_resource(Imdb, '/imdb/<title_id>')
-# api.add_resource(Todo, '/todos/<todo_id>')
+api.add_resource(ImageGenre, '/genre/image')
+api.add_resource(TextGenre, '/genre/text')
